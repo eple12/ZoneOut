@@ -411,6 +411,12 @@
   const VIDEO_LOOP_XFADE = 1.2;  // seconds, loop crossfade for video
   const AUDIO_LOOP_XFADE = 1.4;  // seconds, loop crossfade for audio
   const THEME_XFADE = 1.6;       // seconds, crossfade when switching themes
+  const AUDIO_LOOP_TRIM = 1.4;   // seconds skipped at the start of every *repeat* loop —
+                                  // most ambience clips fade in from silence, so restarting
+                                  // exactly at 0 on every cycle compounds with our own
+                                  // crossfade-in and reads as a dip/dropout near the loop
+                                  // point; jumping past the quiet intro avoids that. The
+                                  // very first playback still starts at the true beginning.
 
   let current = localStorage.getItem('zoneout-theme') || 'rain';
   let flashTimer = null;
@@ -568,7 +574,7 @@
         const nextIdx = 1 - aActive;
         const na = audios[nextIdx];
         na.src = a.src;
-        na.currentTime = 0;
+        na.currentTime = Math.min(AUDIO_LOOP_TRIM, a.duration * 0.15);
         na.play().catch(()=>{});
         crossfadeAudio(aActive, nextIdx, xf);
         aActive = nextIdx;
