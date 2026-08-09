@@ -39,43 +39,49 @@
   /* clock */
   #clock{
     position:absolute; top:6vh; left:50%; transform:translateX(-50%);
-    z-index:4; color:rgba(255,255,255,0.88);
+    z-index:4; color:rgba(255,255,255,0.88); text-align:center;
     font-size:clamp(2.4rem, 6vw, 4.2rem); font-weight:200; letter-spacing:2px;
     text-shadow: 0 2px 24px rgba(0,0,0,0.55);
     pointer-events:none; user-select:none;
-    transition: opacity 1s ease;
   }
   #clock .date{
-    display:block; text-align:center; font-size:0.32em; font-weight:400;
+    display:block; font-size:0.32em; font-weight:400;
     letter-spacing:4px; opacity:0.75; margin-top:6px;
   }
+
+  /* ---------- liquid glass surface: translucent, blurred, with a soft top
+     highlight and inset rim to read as glass rather than a flat tinted panel ---------- */
+  .glass{
+    background: linear-gradient(155deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05) 45%, rgba(255,255,255,0.09));
+    backdrop-filter: blur(26px) saturate(1.9);
+    -webkit-backdrop-filter: blur(26px) saturate(1.9);
+    border: 1px solid rgba(255,255,255,0.22);
+    box-shadow:
+      0 12px 40px rgba(0,0,0,0.35),
+      inset 0 1px 0 rgba(255,255,255,0.45),
+      inset 0 -1px 0 rgba(255,255,255,0.05);
+  }
+
+  /* ---------- idle fade, applied per-element (not blanket body.idle) so each
+     panel can opt out via the settings panel's "keep visible" toggles ---------- */
+  .fadeable{ transition: opacity 0.6s ease, transform 0.6s ease; }
+  .fadeable.idle-hidden{ opacity:0; }
 
   /* control bar */
   #controls{
     position:absolute; left:50%; bottom:5vh; transform:translateX(-50%);
     z-index:5; display:flex; align-items:center; gap:10px;
-    background:var(--ui-bg); backdrop-filter: blur(18px) saturate(1.2);
-    -webkit-backdrop-filter: blur(18px) saturate(1.2);
-    border:1px solid rgba(255,255,255,0.08);
     border-radius:999px; padding:10px 14px;
-    box-shadow:0 10px 40px rgba(0,0,0,0.35);
-    transition: opacity 0.6s ease, transform 0.6s ease;
   }
-  body.idle #controls, body.idle #clock, body.idle #variants{ opacity:0; }
-  body.idle #controls{ transform:translateX(-50%) translateY(14px); }
-  body.idle #variants{ transform:translateX(-50%) translateY(10px); }
+  #controls.idle-hidden{ transform:translateX(-50%) translateY(14px); }
 
   /* variant picker: which background / which sound, per theme */
   #variants{
     position:absolute; left:50%; bottom:calc(5vh + 62px); transform:translateX(-50%);
     z-index:5; display:flex; align-items:center; gap:12px;
-    background:var(--ui-bg); backdrop-filter: blur(18px) saturate(1.2);
-    -webkit-backdrop-filter: blur(18px) saturate(1.2);
-    border:1px solid rgba(255,255,255,0.08);
     border-radius:999px; padding:7px 14px;
-    box-shadow:0 8px 30px rgba(0,0,0,0.3);
-    transition: opacity 0.6s ease, transform 0.6s ease;
   }
+  #variants.idle-hidden{ transform:translateX(-50%) translateY(10px); }
   .vgroup{ display:flex; align-items:center; gap:7px; }
   .vicon{ display:flex; color:rgba(255,255,255,0.4); }
   .vicon svg{ width:12px; height:12px; }
@@ -115,27 +121,101 @@
     display:flex; align-items:center; justify-content:center;
   }
   #muteBtn:hover{ color:#fff; }
-  #vol{
+  #vol, #uiVol{
     -webkit-appearance:none; appearance:none; width:90px; height:4px;
     border-radius:4px; background:rgba(255,255,255,0.2); outline:none;
   }
-  #vol::-webkit-slider-thumb{
+  #vol::-webkit-slider-thumb, #uiVol::-webkit-slider-thumb{
     -webkit-appearance:none; width:13px; height:13px; border-radius:50%;
     background:#fff; cursor:pointer; box-shadow:0 0 6px rgba(0,0,0,0.4);
   }
-  #vol::-moz-range-thumb{
+  #vol::-moz-range-thumb, #uiVol::-moz-range-thumb{
     width:13px; height:13px; border-radius:50%; background:#fff; border:none; cursor:pointer;
   }
+  .uiVolRow{ padding:4px 2px 2px; }
+  #uiVol{ width:100%; }
 
-  #fsBtn{
-    appearance:none; border:none; cursor:pointer;
-    width:44px; height:44px; border-radius:50%;
-    background:rgba(255,255,255,0.06); color:rgba(255,255,255,0.75);
-    display:flex; align-items:center; justify-content:center;
-    transition: all .25s ease;
-  }
-  #fsBtn:hover{ background:rgba(255,255,255,0.14); color:#fff; }
   #fsBtn svg{ width:18px; height:18px; }
+  #timerToggleBtn.active, #settingsBtn.active{
+    background: rgba(255,255,255,0.22); color:#fff;
+  }
+
+  /* ---------- settings popover: which panels ignore the idle fade ---------- */
+  #settingsPanel{
+    position:absolute; right:5vw; bottom:calc(5vh + 62px);
+    z-index:6; width:190px; padding:14px 16px; border-radius:20px;
+    display:flex; flex-direction:column; gap:2px;
+    opacity:0; pointer-events:none; transform:translateY(8px);
+    transition: opacity .25s ease, transform .25s ease;
+  }
+  #settingsPanel.open{ opacity:1; pointer-events:auto; transform:translateY(0); }
+  .settingsTitle{
+    font-size:0.68rem; letter-spacing:1.5px; text-transform:uppercase;
+    color:rgba(255,255,255,0.45); margin:0 0 6px 2px;
+  }
+  .toggleRow{
+    display:flex; align-items:center; justify-content:space-between;
+    gap:14px; padding:6px 2px;
+  }
+  .toggleLabel{ font-size:0.82rem; color:rgba(255,255,255,0.85); }
+  .toggleSwitch{
+    appearance:none; border:none; cursor:pointer; padding:2px;
+    width:34px; height:20px; border-radius:999px; flex:none;
+    background:rgba(255,255,255,0.18);
+    transition: background .2s ease;
+  }
+  .toggleSwitch .knob{
+    display:block; width:16px; height:16px; border-radius:50%;
+    background:#fff; box-shadow:0 1px 3px rgba(0,0,0,0.4);
+    transform:translateX(0); transition: transform .2s ease;
+  }
+  .toggleSwitch.on{ background:rgb(var(--accent)); }
+  .toggleSwitch.on .knob{ transform:translateX(14px); }
+
+  /* ---------- timer / stopwatch ---------- */
+  #timerPanel{
+    position:absolute; top:6vh; left:5vw; z-index:5;
+    width:216px; padding:18px 20px 20px; border-radius:24px;
+    display:flex; flex-direction:column; align-items:center; gap:12px;
+    opacity:0; pointer-events:none; transform:translateY(-8px);
+    transition: opacity .3s ease, transform .3s ease;
+    cursor:grab; touch-action:none;
+  }
+  #timerPanel.open{ opacity:1; pointer-events:auto; transform:translateY(0); }
+  #timerPanel.open.idle-hidden{ opacity:0; pointer-events:none; }
+  #timerPanel.dragging{ cursor:grabbing; transition:none; }
+  #timerPanel button{ cursor:pointer; }
+  .timerTabs{
+    display:flex; gap:3px; background:rgba(255,255,255,0.08);
+    padding:3px; border-radius:999px;
+  }
+  .tmode{
+    appearance:none; border:none; cursor:pointer; padding:5px 13px;
+    border-radius:999px; font-size:0.72rem; letter-spacing:0.3px;
+    color:rgba(255,255,255,0.6); background:transparent; transition: all .2s ease;
+  }
+  .tmode.active{ background:rgba(255,255,255,0.18); color:#fff; }
+  .timerDisplay{
+    font-size:2.15rem; font-weight:200; letter-spacing:1px; color:#fff;
+    font-variant-numeric: tabular-nums; text-shadow:0 2px 16px rgba(0,0,0,0.4);
+  }
+  .timerPresets{ display:flex; gap:6px; }
+  .preset{
+    appearance:none; border:none; cursor:pointer; padding:5px 10px;
+    border-radius:10px; background:rgba(255,255,255,0.08);
+    color:rgba(255,255,255,0.75); font-size:0.72rem; transition: all .2s ease;
+  }
+  .preset:hover{ background:rgba(255,255,255,0.16); }
+  .preset.active{ background:rgb(var(--accent)); color:#fff; }
+  .timerBtns{ display:flex; gap:8px; width:100%; }
+  .tbtn{
+    appearance:none; border:none; cursor:pointer; flex:1; padding:9px 0;
+    border-radius:12px; background:rgba(255,255,255,0.1); color:#fff;
+    font-size:0.78rem; letter-spacing:0.4px; transition: all .2s ease;
+  }
+  .tbtn:hover{ background:rgba(255,255,255,0.18); }
+  .tbtn.primary{ background:rgb(var(--accent)); }
+  .tbtn.primary:hover{ filter:brightness(1.12); }
 
   #hint{
     position:absolute; bottom:5vh; left:50%; transform:translateX(-50%) translateY(70px);
@@ -176,14 +256,44 @@
   <div id="flash"></div>
   <div id="vignette"></div>
 
-  <div id="clock"><span id="time">--:--</span><span class="date" id="date"></span></div>
+  <div id="clock" class="fadeable" data-fade-key="clock"><span id="time">--:--</span><span class="date" id="date"></span></div>
+
+  <div id="timerPanel" class="glass fadeable" data-fade-key="timer">
+    <div class="timerTabs">
+      <button class="tmode active" data-mode="timer" type="button">Timer</button>
+      <button class="tmode" data-mode="stopwatch" type="button">Stopwatch</button>
+    </div>
+    <div class="timerDisplay" id="timerDisplay">05:00</div>
+    <div class="timerPresets" id="timerPresets">
+      <button class="preset active" data-min="5" type="button">5m</button>
+      <button class="preset" data-min="10" type="button">10m</button>
+      <button class="preset" data-min="15" type="button">15m</button>
+      <button class="preset" data-min="25" type="button">25m</button>
+    </div>
+    <div class="timerBtns">
+      <button id="timerStartPause" class="tbtn primary" type="button">Start</button>
+      <button id="timerReset" class="tbtn" type="button">Reset</button>
+    </div>
+  </div>
+
+  <div id="settingsPanel" class="glass">
+    <div class="settingsTitle">Keep visible</div>
+    <label class="toggleRow"><span class="toggleLabel">Clock</span><button class="toggleSwitch" data-key="clock" type="button"><span class="knob"></span></button></label>
+    <label class="toggleRow"><span class="toggleLabel">Controls</span><button class="toggleSwitch" data-key="controls" type="button"><span class="knob"></span></button></label>
+    <label class="toggleRow"><span class="toggleLabel">Picker</span><button class="toggleSwitch" data-key="variants" type="button"><span class="knob"></span></button></label>
+    <label class="toggleRow"><span class="toggleLabel">Timer</span><button class="toggleSwitch" data-key="timer" type="button"><span class="knob"></span></button></label>
+    <div class="settingsTitle" style="margin-top:10px;">System sound</div>
+    <div class="uiVolRow">
+      <input type="range" id="uiVol" min="0" max="100" value="100">
+    </div>
+  </div>
 
   <div id="loader">LOADING…</div>
   <div id="miniLoader"></div>
 
   <div id="hint">클릭하면 소리가 시작돼요 · 마우스를 움직이지 않으면 화면이 정리됩니다</div>
 
-  <div id="variants">
+  <div id="variants" class="glass fadeable" data-fade-key="variants">
     <span class="vicon" title="Background">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 15l4.5-4.5a2 2 0 0 1 2.8 0L15 15M14 14l1.5-1.5a2 2 0 0 1 2.8 0L21 15"/></svg>
     </span>
@@ -195,7 +305,7 @@
     <div class="vgroup" id="audioDots"></div>
   </div>
 
-  <div id="controls">
+  <div id="controls" class="glass fadeable" data-fade-key="controls">
     <button class="theme-btn" data-theme="rain" title="Rain">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M16 13a5 5 0 0 0-9.6-1.8A4 4 0 0 0 7 19h9a4 4 0 0 0 0-8 5 5 0 0 0 0 2.8Z"/><path d="M8 21l-1 2M12 21l-1 2M16 21l-1 2"/></svg>
     </button>
@@ -224,7 +334,16 @@
 
     <div class="divider"></div>
 
-    <button id="fsBtn" title="Fullscreen">
+    <button id="timerToggleBtn" class="theme-btn" title="Timer / Stopwatch" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg>
+    </button>
+    <button id="settingsBtn" class="theme-btn" title="Settings" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
+    </button>
+
+    <div class="divider"></div>
+
+    <button id="fsBtn" class="theme-btn" title="Fullscreen" type="button">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/></svg>
     </button>
   </div>
@@ -484,7 +603,7 @@
     switchVideoTheme(name);
     switchAudioTheme(name, userGesture);
 
-    document.querySelectorAll('.theme-btn').forEach(b => b.classList.toggle('active', b.dataset.theme === name));
+    document.querySelectorAll('.theme-btn[data-theme]').forEach(b => b.classList.toggle('active', b.dataset.theme === name));
     document.documentElement.style.setProperty('--accent', themes[name].accent);
     renderVariants(name);
 
@@ -542,7 +661,7 @@
     }, 90);
   }
 
-  document.querySelectorAll('.theme-btn').forEach(btn=>{
+  document.querySelectorAll('.theme-btn[data-theme]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       started = true;
       setTheme(btn.dataset.theme, true);
@@ -580,20 +699,279 @@
     document.getElementById('time').textContent =
       now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
     document.getElementById('date').textContent =
-      now.toLocaleDateString('ko-KR', { month:'long', day:'numeric', weekday:'long' });
+      now.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
   }
   tick();
   setInterval(tick, 1000*10);
 
-  // idle fade
+  // ---- idle fade, per element ----
+  // Which panels ignore the idle fade is user-configurable from the settings
+  // popover (gear icon), so this toggles a class per element instead of one
+  // blanket body.idle rule.
+  const stayVisible = Object.assign(
+    { clock:false, controls:false, variants:false, timer:false },
+    JSON.parse(localStorage.getItem('zoneout-stayvisible') || '{}')
+  );
+  function saveStayVisible(){ localStorage.setItem('zoneout-stayvisible', JSON.stringify(stayVisible)); }
+
+  function applyIdle(idle){
+    document.querySelectorAll('.fadeable').forEach(el=>{
+      const key = el.dataset.fadeKey;
+      el.classList.toggle('idle-hidden', idle && !stayVisible[key]);
+    });
+  }
   let idleTimer = null;
   function resetIdle(){
-    document.body.classList.remove('idle');
+    applyIdle(false);
     clearTimeout(idleTimer);
-    idleTimer = setTimeout(()=> document.body.classList.add('idle'), 4000);
+    idleTimer = setTimeout(()=> applyIdle(true), 4000);
   }
   ['mousemove','touchstart','keydown'].forEach(ev => window.addEventListener(ev, resetIdle));
   resetIdle();
+
+  document.querySelectorAll('.toggleSwitch').forEach(sw=>{
+    const key = sw.dataset.key;
+    sw.classList.toggle('on', !!stayVisible[key]);
+    sw.addEventListener('click', ()=>{
+      stayVisible[key] = !stayVisible[key];
+      sw.classList.toggle('on', stayVisible[key]);
+      saveStayVisible();
+      resetIdle();
+    });
+  });
+
+  const settingsBtn = document.getElementById('settingsBtn');
+  const settingsPanel = document.getElementById('settingsPanel');
+  settingsBtn.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    settingsPanel.classList.toggle('open');
+    settingsBtn.classList.toggle('active', settingsPanel.classList.contains('open'));
+  });
+  window.addEventListener('click', (e)=>{
+    if (settingsPanel.classList.contains('open') && !settingsPanel.contains(e.target)) {
+      settingsPanel.classList.remove('open');
+      settingsBtn.classList.remove('active');
+    }
+  });
+
+  // system-sound (UI chime) volume — separate from the ambient sound slider,
+  // since a user may want the ambience quiet but timer feedback still audible
+  let uiVolume = parseFloat(localStorage.getItem('zoneout-uivolume') ?? '1');
+  const uiVolSlider = document.getElementById('uiVol');
+  uiVolSlider.value = Math.round(uiVolume * 100);
+  uiVolSlider.addEventListener('input', ()=>{
+    uiVolume = uiVolSlider.value / 100;
+    localStorage.setItem('zoneout-uivolume', uiVolume);
+  });
+
+  // ---- soft system-sound "boop", synthesized so timer feedback doesn't
+  // depend on an external audio file. No bell-like overtones at all — just a
+  // low fundamental plus a sub-octave for warmth, both pure sines with a
+  // gentle downward glide, short and quiet like a native UI chime rather
+  // than something that rings on.
+  // Two-stage chain: a compressor shapes the dynamics, then a big makeup-gain
+  // boost restores (and pushes past) the original loudness, then a second
+  // compressor configured as a brick-wall limiter catches anything the
+  // makeup gain pushes over 0dBFS. This is the standard "compress, then
+  // makeup gain, then limit" trick for getting genuinely louder without
+  // clipping — a single compressor alone just caps the ceiling lower.
+  let bellCtx = null, bellBus = null;
+  function getBellCtx(){
+    if (!bellCtx) {
+      bellCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const comp = bellCtx.createDynamicsCompressor();
+      comp.threshold.value = -24;
+      comp.knee.value = 6;
+      comp.ratio.value = 12;
+      comp.attack.value = 0.002;
+      comp.release.value = 0.2;
+      const makeup = bellCtx.createGain();
+      makeup.gain.value = 4.5;
+      const limiter = bellCtx.createDynamicsCompressor();
+      limiter.threshold.value = -1;
+      limiter.knee.value = 0;
+      limiter.ratio.value = 20;
+      limiter.attack.value = 0.001;
+      limiter.release.value = 0.1;
+      comp.connect(makeup).connect(limiter).connect(bellCtx.destination);
+      bellBus = comp;
+    }
+    if (bellCtx.state === 'suspended') bellCtx.resume();
+    return bellCtx;
+  }
+  function playBell(big){
+    if (uiVolume <= 0) return;
+    const ctx = getBellCtx();
+    const now = ctx.currentTime;
+    const freq = big ? 164.8 : 185.0; // low, soft register — E3 / F#3
+    const attack = 0.012;
+    const dur = big ? 0.62 : 0.46;
+    [1, 0.5].forEach((ratio, i)=>{ // fundamental + sub-octave only, no upper partials to keep it metal-free
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq * ratio, now);
+      osc.frequency.exponentialRampToValueAtTime(freq * ratio * 0.9, now + dur); // slight downward glide = softness
+      const gain = ctx.createGain();
+      const peak = (big ? 1.6 : 1.25) * (i === 0 ? 1 : 0.5) * uiVolume;
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(peak, now + attack);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      osc.connect(gain).connect(bellBus);
+      osc.start(now);
+      osc.stop(now + dur + 0.05);
+    });
+  }
+
+  // ---- timer / stopwatch ----
+  const timerToggleBtn = document.getElementById('timerToggleBtn');
+  const timerPanel = document.getElementById('timerPanel');
+  const timerDisplayEl = document.getElementById('timerDisplay');
+  const timerStartPauseBtn = document.getElementById('timerStartPause');
+
+  let tMode = 'timer';
+  let tRunning = false;
+  let tPresetMin = 5;
+  let tBaseMs = tPresetMin * 60 * 1000; // timer: remaining ms when paused; stopwatch: elapsed ms when paused
+  let tRunStart = 0;                     // Date.now() at the most recent Start
+  let tTickHandle = null;
+
+  function formatClock(ms){
+    const totalSec = Math.max(0, Math.round(ms / 1000));
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+  }
+  function currentDisplayMs(){
+    if (!tRunning) return tBaseMs;
+    const delta = Date.now() - tRunStart;
+    return tMode === 'timer' ? tBaseMs - delta : tBaseMs + delta;
+  }
+  function setStartPauseLabel(){
+    timerStartPauseBtn.textContent = tRunning ? 'Pause' : 'Start';
+  }
+  function renderTimer(){
+    const ms = currentDisplayMs();
+    if (tMode === 'timer' && tRunning && ms <= 0) {
+      completeTimer();
+      return;
+    }
+    timerDisplayEl.textContent = formatClock(ms);
+  }
+  function startTick(){
+    clearInterval(tTickHandle);
+    tTickHandle = setInterval(renderTimer, 250);
+  }
+  function completeTimer(){
+    tRunning = false;
+    tBaseMs = 0;
+    clearInterval(tTickHandle);
+    timerDisplayEl.textContent = '00:00';
+    setStartPauseLabel();
+    playBell(true);
+    setTimeout(()=> playBell(true), 550);
+    resetIdle(); // surface the UI so a finished timer doesn't go unnoticed
+  }
+
+  timerToggleBtn.addEventListener('click', ()=>{
+    const open = timerPanel.classList.toggle('open');
+    timerToggleBtn.classList.toggle('active', open);
+    if (open) resetIdle();
+  });
+
+  // drag the timer panel anywhere on screen — grabbing works from any part of
+  // the panel except its buttons, so Start/Reset/mode taps still register
+  (function initTimerDrag(){
+    let dragging = false, moved = false, startX = 0, startY = 0, origLeft = 0, origTop = 0;
+
+    const saved = JSON.parse(localStorage.getItem('zoneout-timerpos') || 'null');
+    if (saved) {
+      timerPanel.style.left = saved.left + 'px';
+      timerPanel.style.top = saved.top + 'px';
+    }
+
+    timerPanel.addEventListener('pointerdown', (e)=>{
+      if (e.target.closest('button')) return; // let taps on buttons through
+      dragging = true;
+      moved = false;
+      timerPanel.setPointerCapture(e.pointerId);
+      timerPanel.classList.add('dragging');
+      const rect = timerPanel.getBoundingClientRect();
+      startX = e.clientX; startY = e.clientY;
+      origLeft = rect.left; origTop = rect.top;
+    });
+    timerPanel.addEventListener('pointermove', (e)=>{
+      if (!dragging) return;
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) moved = true;
+      const maxLeft = window.innerWidth - timerPanel.offsetWidth - 4;
+      const maxTop = window.innerHeight - timerPanel.offsetHeight - 4;
+      const left = Math.max(4, Math.min(maxLeft, origLeft + dx));
+      const top = Math.max(4, Math.min(maxTop, origTop + dy));
+      timerPanel.style.left = left + 'px';
+      timerPanel.style.top = top + 'px';
+      resetIdle();
+    });
+    timerPanel.addEventListener('pointerup', (e)=>{
+      if (!dragging) return;
+      dragging = false;
+      timerPanel.classList.remove('dragging');
+      if (moved) {
+        localStorage.setItem('zoneout-timerpos', JSON.stringify({
+          left: parseFloat(timerPanel.style.left),
+          top: parseFloat(timerPanel.style.top)
+        }));
+      }
+    });
+  })();
+
+  document.querySelectorAll('.tmode').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      if (btn.dataset.mode === tMode) return;
+      tMode = btn.dataset.mode;
+      tRunning = false;
+      clearInterval(tTickHandle);
+      tBaseMs = (tMode === 'timer') ? tPresetMin * 60 * 1000 : 0;
+      document.querySelectorAll('.tmode').forEach(b => b.classList.toggle('active', b === btn));
+      document.getElementById('timerPresets').style.display = (tMode === 'timer') ? 'flex' : 'none';
+      setStartPauseLabel();
+      renderTimer();
+    });
+  });
+
+  document.querySelectorAll('.preset').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      if (tRunning) return; // keep it simple: pause or reset before changing duration
+      tPresetMin = parseInt(btn.dataset.min, 10);
+      tBaseMs = tPresetMin * 60 * 1000;
+      document.querySelectorAll('.preset').forEach(b => b.classList.toggle('active', b === btn));
+      renderTimer();
+    });
+  });
+
+  timerStartPauseBtn.addEventListener('click', ()=>{
+    if (tMode === 'timer' && tBaseMs <= 0 && !tRunning) tBaseMs = tPresetMin * 60 * 1000;
+    playBell();
+    if (tRunning) {
+      tBaseMs = currentDisplayMs();
+      tRunning = false;
+      clearInterval(tTickHandle);
+    } else {
+      tRunStart = Date.now();
+      tRunning = true;
+      startTick();
+    }
+    setStartPauseLabel();
+    renderTimer();
+  });
+
+  document.getElementById('timerReset').addEventListener('click', ()=>{
+    playBell();
+    tRunning = false;
+    clearInterval(tTickHandle);
+    tBaseMs = (tMode === 'timer') ? tPresetMin * 60 * 1000 : 0;
+    setStartPauseLabel();
+    renderTimer();
+  });
 
   function hideHint(){
     document.getElementById('hint').classList.add('hidden');
