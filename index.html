@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZoneOut — 그냥 멍때리기</title>
+<style>
+  :root{
+    --accent: 108,158,255;
+    --ui-bg: rgba(20,22,28,0.55);
+  }
+  *{ box-sizing: border-box; }
+  html,body{
+    margin:0; padding:0; width:100%; height:100%;
+    background:#05060a; overflow:hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard", "Noto Sans KR", sans-serif;
+  }
+  #stage{
+    position:fixed; inset:0; width:100vw; height:100vh; overflow:hidden;
+  }
+  video.bg{
+    position:absolute; inset:0; width:100%; height:100%;
+    object-fit:cover; opacity:0;
+    filter: brightness(0.72) saturate(1.05);
+  }
+
+  /* subtle vignette so UI stays legible */
+  #vignette{
+    position:absolute; inset:0; z-index:2; pointer-events:none;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0) 40%, rgba(0,0,0,0.45) 100%);
+  }
+
+  /* lightning flash layer */
+  #flash{
+    position:absolute; inset:0; z-index:3; pointer-events:none;
+    background:#eef3ff; opacity:0;
+  }
+
+  /* clock */
+  #clock{
+    position:absolute; top:6vh; left:50%; transform:translateX(-50%);
+    z-index:4; color:rgba(255,255,255,0.88);
+    font-size:clamp(2.4rem, 6vw, 4.2rem); font-weight:200; letter-spacing:2px;
+    text-shadow: 0 2px 24px rgba(0,0,0,0.55);
+    pointer-events:none; user-select:none;
+    transition: opacity 1s ease;
+  }
+  #clock .date{
+    display:block; text-align:center; font-size:0.32em; font-weight:400;
+    letter-spacing:4px; opacity:0.75; margin-top:6px;
+  }
+
+  /* control bar */
+  #controls{
+    position:absolute; left:50%; bottom:5vh; transform:translateX(-50%);
+    z-index:5; display:flex; align-items:center; gap:10px;
+    background:var(--ui-bg); backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+    border:1px solid rgba(255,255,255,0.08);
+    border-radius:999px; padding:10px 14px;
+    box-shadow:0 10px 40px rgba(0,0,0,0.35);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+  }
+  body.idle #controls, body.idle #clock, body.idle #variants{ opacity:0; }
+  body.idle #controls{ transform:translateX(-50%) translateY(14px); }
+  body.idle #variants{ transform:translateX(-50%) translateY(10px); }
+
+  /* variant picker: which background / which sound, per theme */
+  #variants{
+    position:absolute; left:50%; bottom:calc(5vh + 62px); transform:translateX(-50%);
+    z-index:5; display:flex; align-items:center; gap:12px;
+    background:var(--ui-bg); backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+    border:1px solid rgba(255,255,255,0.08);
+    border-radius:999px; padding:7px 14px;
+    box-shadow:0 8px 30px rgba(0,0,0,0.3);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+  }
+  .vgroup{ display:flex; align-items:center; gap:7px; }
+  .vicon{ display:flex; color:rgba(255,255,255,0.4); }
+  .vicon svg{ width:12px; height:12px; }
+  .vsep{ width:1px; height:12px; background:rgba(255,255,255,0.14); }
+  .vdot{
+    appearance:none; border:none; cursor:pointer; padding:0;
+    width:8px; height:8px; border-radius:50%;
+    background:rgba(255,255,255,0.28);
+    transition: all .2s ease;
+  }
+  .vdot:hover{ background:rgba(255,255,255,0.55); }
+  .vdot.active{
+    background:rgb(var(--accent)); box-shadow:0 0 8px rgba(var(--accent),0.7);
+    width:10px; height:10px;
+  }
+
+  .theme-btn{
+    appearance:none; border:none; cursor:pointer;
+    width:44px; height:44px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(255,255,255,0.06); color:rgba(255,255,255,0.75);
+    transition: all .25s ease;
+  }
+  .theme-btn svg{ width:20px; height:20px; }
+  .theme-btn:hover{ background:rgba(255,255,255,0.14); color:#fff; }
+  .theme-btn.active{
+    background: rgba(var(--accent),0.9); color:#fff;
+    box-shadow: 0 0 18px rgba(var(--accent),0.55);
+  }
+
+  .divider{ width:1px; height:24px; background:rgba(255,255,255,0.14); margin:0 2px; }
+
+  #volWrap{ display:flex; align-items:center; gap:8px; padding:0 6px; }
+  #muteBtn{
+    appearance:none; border:none; background:transparent; cursor:pointer;
+    color:rgba(255,255,255,0.8); width:32px; height:32px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  #muteBtn:hover{ color:#fff; }
+  #vol{
+    -webkit-appearance:none; appearance:none; width:90px; height:4px;
+    border-radius:4px; background:rgba(255,255,255,0.2); outline:none;
+  }
+  #vol::-webkit-slider-thumb{
+    -webkit-appearance:none; width:13px; height:13px; border-radius:50%;
+    background:#fff; cursor:pointer; box-shadow:0 0 6px rgba(0,0,0,0.4);
+  }
+  #vol::-moz-range-thumb{
+    width:13px; height:13px; border-radius:50%; background:#fff; border:none; cursor:pointer;
+  }
+
+  #fsBtn{
+    appearance:none; border:none; cursor:pointer;
+    width:44px; height:44px; border-radius:50%;
+    background:rgba(255,255,255,0.06); color:rgba(255,255,255,0.75);
+    display:flex; align-items:center; justify-content:center;
+    transition: all .25s ease;
+  }
+  #fsBtn:hover{ background:rgba(255,255,255,0.14); color:#fff; }
+  #fsBtn svg{ width:18px; height:18px; }
+
+  #hint{
+    position:absolute; bottom:5vh; left:50%; transform:translateX(-50%) translateY(70px);
+    z-index:5; color:rgba(255,255,255,0.5); font-size:0.78rem; letter-spacing:0.5px;
+    pointer-events:none; transition:opacity 1.2s ease; opacity:1;
+  }
+  #hint.hidden{ opacity:0; }
+
+  #loader{
+    position:absolute; inset:0; z-index:10; background:#05060a;
+    display:flex; align-items:center; justify-content:center;
+    color:rgba(255,255,255,0.55); font-size:0.9rem; letter-spacing:2px;
+    transition: opacity 0.8s ease;
+  }
+  #loader.hidden{ opacity:0; pointer-events:none; }
+
+  /* small non-blocking spinner shown while a new clip is still buffering —
+     the outgoing video stays on screen the whole time, this just signals
+     that a switch is in flight rather than the click having done nothing */
+  #miniLoader{
+    position:absolute; top:20px; right:20px; z-index:6;
+    width:20px; height:20px; border-radius:50%;
+    border:2px solid rgba(255,255,255,0.22); border-top-color:rgba(255,255,255,0.85);
+    opacity:0; pointer-events:none;
+    transition: opacity 0.25s ease;
+    animation: spin 0.8s linear infinite;
+  }
+  #miniLoader.show{ opacity:1; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <video class="bg" id="vidA" muted playsinline preload="auto"></video>
+  <video class="bg" id="vidB" muted playsinline preload="auto"></video>
+
+  <div id="flash"></div>
+  <div id="vignette"></div>
+
+  <div id="clock"><span id="time">--:--</span><span class="date" id="date"></span></div>
+
+  <div id="loader">LOADING…</div>
+  <div id="miniLoader"></div>
+
+  <div id="hint">클릭하면 소리가 시작돼요 · 마우스를 움직이지 않으면 화면이 정리됩니다</div>
+
+  <div id="variants">
+    <span class="vicon" title="Background">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 15l4.5-4.5a2 2 0 0 1 2.8 0L15 15M14 14l1.5-1.5a2 2 0 0 1 2.8 0L21 15"/></svg>
+    </span>
+    <div class="vgroup" id="videoDots"></div>
+    <div class="vsep"></div>
+    <span class="vicon" title="Sound">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>
+    </span>
+    <div class="vgroup" id="audioDots"></div>
+  </div>
+
+  <div id="controls">
+    <button class="theme-btn" data-theme="rain" title="Rain">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M16 13a5 5 0 0 0-9.6-1.8A4 4 0 0 0 7 19h9a4 4 0 0 0 0-8 5 5 0 0 0 0 2.8Z"/><path d="M8 21l-1 2M12 21l-1 2M16 21l-1 2"/></svg>
+    </button>
+    <button class="theme-btn" data-theme="thunder" title="Thunderstorm">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 13a5 5 0 0 0-9.6-1.8A4 4 0 0 0 8 19h2"/><path d="M13 12l-3 5h3l-2 5 5-6h-3l2-4z"/></svg>
+    </button>
+    <button class="theme-btn" data-theme="snow" title="Snow">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 2v20M4.5 7l15 10M19.5 7l-15 10"/></svg>
+    </button>
+    <button class="theme-btn" data-theme="fireplace" title="Fireplace">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c1 3-2 4-2 7a2 2 0 0 0 4 0c1 1 2 2.5 2 4.5A6 6 0 0 1 4 13.5C4 9 8 7 8 4c1.5 1 2 2 2 3.5C11 6 12 4 12 2Z"/></svg>
+    </button>
+
+    <div class="divider"></div>
+
+    <div id="volWrap">
+      <button id="muteBtn" title="Mute">
+        <svg id="volIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+          <path d="M11 5 6 9H3v6h3l5 4V5Z"/>
+          <path d="M15.5 8.5a5 5 0 0 1 0 7"/>
+          <path d="M18.5 6a9 9 0 0 1 0 12"/>
+        </svg>
+      </button>
+      <input type="range" id="vol" min="0" max="100" value="55">
+    </div>
+
+    <div class="divider"></div>
+
+    <button id="fsBtn" title="Fullscreen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/></svg>
+    </button>
+  </div>
+</div>
+
+<script>
+(function(){
+  const themes = {
+    rain: {
+      videos: [
+        'https://videos.pexels.com/video-files/32089669/13678860_1920_1080_24fps.mp4',
+        'https://videos.pexels.com/video-files/5197762/5197762-hd_1920_1080_25fps.mp4'
+      ],
+      audios: [
+        'https://assets.mixkit.co/active_storage/sfx/1247/1247-preview.mp3',
+        'https://assets.mixkit.co/active_storage/sfx/1262/1262-preview.mp3'
+      ],
+      accent: '108,158,255', flash:false
+    },
+    thunder: {
+      videos: [
+        'https://videos.pexels.com/video-files/32943917/14040734_1920_1080_60fps.mp4',
+        'https://videos.pexels.com/video-files/18851812/18851812-hd_1920_1080_30fps.mp4'
+      ],
+      audios: [
+        'https://assets.mixkit.co/active_storage/sfx/2390/2390-preview.mp3',
+        'https://assets.mixkit.co/active_storage/sfx/2406/2406-preview.mp3'
+      ],
+      accent: '150,140,255', flash:true
+    },
+    snow: {
+      videos: [
+        'https://videos.pexels.com/video-files/35347462/14976507_1920_1080_30fps.mp4',
+        'https://videos.pexels.com/video-files/857032/857032-hd_1920_1080_30fps.mp4'
+      ],
+      audios: [
+        'https://assets.mixkit.co/active_storage/sfx/2658/2658-preview.mp3',
+        'https://assets.mixkit.co/active_storage/sfx/1267/1267-preview.mp3'
+      ],
+      accent: '190,210,255', flash:false
+    },
+    fireplace: {
+      videos: [
+        'https://videos.pexels.com/video-files/37494805/15884443_1920_1080_30fps.mp4',
+        'https://videos.pexels.com/video-files/11543712/11543712-hd_1920_1080_30fps.mp4'
+      ],
+      audios: [
+        'https://assets.mixkit.co/active_storage/sfx/1330/1330-preview.mp3',
+        'https://assets.mixkit.co/active_storage/sfx/1329/1329-preview.mp3'
+      ],
+      accent: '255,150,80', flash:false
+    }
+  };
+
+  // which video/audio variant is selected within each theme, persisted across visits
+  const variantState = JSON.parse(localStorage.getItem('zoneout-variants') || '{}');
+  function variantsFor(name){
+    if (!variantState[name]) variantState[name] = { v: 0, a: 0 };
+    return variantState[name];
+  }
+  function saveVariants(){ localStorage.setItem('zoneout-variants', JSON.stringify(variantState)); }
+  function videoUrlFor(name){ return themes[name].videos[variantsFor(name).v]; }
+  function audioUrlFor(name){ return themes[name].audios[variantsFor(name).a]; }
+
+  const VIDEO_LOOP_XFADE = 1.2;  // seconds, loop crossfade for video
+  const AUDIO_LOOP_XFADE = 1.4;  // seconds, loop crossfade for audio
+  const THEME_XFADE = 1.6;       // seconds, crossfade when switching themes
+
+  let current = localStorage.getItem('zoneout-theme') || 'rain';
+  let flashTimer = null;
+  let started = false;
+
+  // ---- video: two stacked <video> elements, crossfaded via native CSS transitions ----
+  // (CSS transitions keep running even while the tab is backgrounded; a JS-driven
+  // rAF fade does not, which is what caused the frozen/fade-to-black glitch.)
+  // Only the incoming clip is ever faded (0->1) on top of the outgoing one, which
+  // stays fully opaque underneath — this avoids both layers briefly going
+  // translucent at once and the page's dark background bleeding through.
+  const videos = [document.getElementById('vidA'), document.getElementById('vidB')];
+  let vActive = 0;
+  let videoBusy = false;
+  let videoGenSeq = 0;
+  let videoSwitchSeq = 0;
+
+  // Each crossfade "claims" both elements with a generation tag. Rapid switching
+  // (clicking themes quickly) can leave an earlier crossfade's finish() callback
+  // pending after a newer crossfade has already reclaimed oldEl for something else
+  // — without this check that stale callback would hide/pause an element a newer
+  // transition is actively showing, which is what made fast switches look glitchy.
+  function crossfadeVideo(oldEl, newEl, duration){
+    const gen = ++videoGenSeq;
+    oldEl._gen = gen;
+    newEl._gen = gen;
+    newEl.style.zIndex = 2;
+    oldEl.style.zIndex = 1;
+    newEl.style.transition = 'none';
+    newEl.style.opacity = 0;
+    void newEl.offsetHeight; // force reflow so the reset above applies before animating
+    newEl.style.transition = `opacity ${duration}s linear`;
+    newEl.style.opacity = 1;
+    const finish = ()=>{
+      newEl.removeEventListener('transitionend', finish);
+      if (oldEl._gen !== gen) return; // oldEl has since been reclaimed by a newer crossfade
+      oldEl.style.transition = 'none';
+      oldEl.style.opacity = 0;
+      oldEl.pause();
+    };
+    newEl.addEventListener('transitionend', finish, { once:true });
+    setTimeout(finish, duration * 1000 + 250); // fallback if transitionend doesn't fire
+  }
+
+  function armVideoLoop(v){
+    v.ontimeupdate = ()=>{
+      if (videos[vActive] !== v || !v.duration || videoBusy) return;
+      const xf = Math.min(VIDEO_LOOP_XFADE, v.duration * 0.2);
+      if (v.duration - v.currentTime <= xf) {
+        videoBusy = true;
+        const nextIdx = 1 - vActive;
+        const nv = videos[nextIdx];
+        nv.src = v.src;
+        nv.currentTime = 0;
+        nv.play().catch(()=>{});
+        crossfadeVideo(v, nv, xf);
+        vActive = nextIdx;
+        armVideoLoop(nv);
+        setTimeout(()=>{ videoBusy = false; }, xf * 1000 + 300);
+      }
+    };
+  }
+
+  function switchVideoTheme(name){
+    // canplay is async, so a second click before the first resolves would otherwise
+    // let both callbacks act; only the most recent call is allowed to actually
+    // crossfade in and flip vActive — stale ones just stand down.
+    const seq = ++videoSwitchSeq;
+    const oldV = videos[vActive];
+    const nv = videos[1 - vActive];
+    nv.src = videoUrlFor(name);
+    nv.currentTime = 0;
+
+    // Only show the spinner if loading takes a moment — most switches resolve
+    // near-instantly (cached/fast connection) and a spinner that flashes for a
+    // frame is worse than no spinner at all.
+    const spinner = document.getElementById('miniLoader');
+    const spinnerTimer = setTimeout(()=>{
+      if (seq === videoSwitchSeq) spinner.classList.add('show');
+    }, 250);
+
+    const cleanup = ()=>{
+      nv.removeEventListener('canplay', ready);
+      nv.removeEventListener('error', onError);
+      clearTimeout(spinnerTimer);
+      if (seq === videoSwitchSeq) spinner.classList.remove('show');
+    };
+    const ready = ()=>{
+      cleanup();
+      if (seq !== videoSwitchSeq) return; // superseded by a newer theme switch
+      nv.play().catch(()=>{});
+      crossfadeVideo(oldV, nv, THEME_XFADE);
+      vActive = 1 - vActive;
+      armVideoLoop(nv);
+      document.getElementById('loader').classList.add('hidden');
+    };
+    const onError = cleanup;
+    nv.addEventListener('canplay', ready, { once:true });
+    nv.addEventListener('error', onError, { once:true });
+  }
+
+  // ---- audio: plain <audio>.volume crossfade ----
+  // (Web Audio gain nodes would be more robust, but mixkit's CDN doesn't send CORS
+  // headers, and routing a cross-origin element through createMediaElementSource
+  // without CORS silently zeroes its output — so we're stuck with direct .volume.)
+  const audios = [new Audio(), new Audio()];
+  audios.forEach(a => { a.preload = 'auto'; a.volume = 0; });
+  let aActive = 0;
+  let audioBusy = false;
+  let masterVolume = 0.55;
+  let muted = false;
+
+  function audioTarget(){ return muted ? 0 : masterVolume; }
+
+  // Deliberately setTimeout-driven, not requestAnimationFrame: rAF callbacks can
+  // stop firing altogether when the tab isn't actively compositing (backgrounded,
+  // minimized, or an inactive preview pane), which left this fade stuck at 0
+  // indefinitely. setTimeout keeps firing (if coarsely, when throttled) and each
+  // tick recomputes progress from real elapsed time, so it still converges.
+  //
+  // Each call claims the element with a generation tag. With only two <audio>
+  // elements ping-ponging, switching themes quickly reuses an element while an
+  // older fade targeting it is still running — without this check the old and
+  // new fades would fight over .volume every tick, which is what "growing
+  // overlap" on fast switches actually was.
+  let audioGenSeq = 0;
+  function fadeVolume(el, from, to, duration, onDone){
+    const myGen = ++audioGenSeq;
+    el._gen = myGen;
+    const start = performance.now();
+    function step(){
+      if (el._gen !== myGen) return; // superseded by a newer fade claiming this element
+      const p = Math.min(1, (performance.now() - start) / (duration * 1000));
+      el.volume = Math.max(0, Math.min(1, from + (to - from) * p));
+      if (p < 1) setTimeout(step, 50);
+      else { el.volume = to; if (onDone) onDone(); }
+    }
+    step();
+  }
+
+  function crossfadeAudio(oldIdx, newIdx, duration){
+    const target = audioTarget();
+    const oldEl = audios[oldIdx], newEl = audios[newIdx];
+    fadeVolume(newEl, 0, target, duration);
+    fadeVolume(oldEl, oldEl.volume, 0, duration, ()=>{ oldEl.pause(); });
+  }
+
+  function armAudioLoop(idx){
+    const a = audios[idx];
+    a.ontimeupdate = ()=>{
+      if (aActive !== idx || !a.duration || audioBusy) return;
+      const xf = Math.min(AUDIO_LOOP_XFADE, a.duration * 0.25);
+      if (a.duration - a.currentTime <= xf) {
+        audioBusy = true;
+        const nextIdx = 1 - aActive;
+        const na = audios[nextIdx];
+        na.src = a.src;
+        na.currentTime = 0;
+        na.play().catch(()=>{});
+        crossfadeAudio(aActive, nextIdx, xf);
+        aActive = nextIdx;
+        armAudioLoop(nextIdx);
+        setTimeout(()=>{ audioBusy = false; }, xf * 1000 + 300);
+      }
+    };
+  }
+
+  function switchAudioTheme(name, userGesture){
+    const oldIdx = aActive;
+    const nextIdx = 1 - aActive;
+    const na = audios[nextIdx];
+    audioBusy = true;
+    na.src = audioUrlFor(name);
+    na.currentTime = 0;
+    if (userGesture || started) {
+      na.play().catch(()=>{});
+      started = true;
+    }
+    crossfadeAudio(oldIdx, nextIdx, THEME_XFADE);
+    aActive = nextIdx;
+    armAudioLoop(nextIdx);
+    setTimeout(()=>{ audioBusy = false; }, THEME_XFADE * 1000 + 300);
+  }
+
+  function setTheme(name, userGesture){
+    if (!themes[name]) return;
+    current = name;
+    localStorage.setItem('zoneout-theme', name);
+
+    switchVideoTheme(name);
+    switchAudioTheme(name, userGesture);
+
+    document.querySelectorAll('.theme-btn').forEach(b => b.classList.toggle('active', b.dataset.theme === name));
+    document.documentElement.style.setProperty('--accent', themes[name].accent);
+    renderVariants(name);
+
+    clearInterval(flashTimer);
+    document.getElementById('flash').style.opacity = 0;
+    if (themes[name].flash) {
+      flashTimer = setInterval(()=>{
+        if (Math.random() < 0.35) doFlash();
+      }, 2600);
+    }
+  }
+
+  // small dot row: pick which background clip / which ambient sound within the
+  // current theme. Rebuilt whenever the theme changes since counts can differ.
+  function renderVariants(name){
+    const state = variantsFor(name);
+    const buildDots = (container, count, activeIdx, onPick)=>{
+      container.innerHTML = '';
+      for (let i=0; i<count; i++){
+        const dot = document.createElement('button');
+        dot.className = 'vdot' + (i === activeIdx ? ' active' : '');
+        dot.type = 'button';
+        dot.addEventListener('click', ()=> onPick(i));
+        container.appendChild(dot);
+      }
+    };
+    buildDots(document.getElementById('videoDots'), themes[name].videos.length, state.v, (i)=>{
+      if (i === state.v) return;
+      state.v = i;
+      saveVariants();
+      switchVideoTheme(name);
+      renderVariants(name);
+    });
+    buildDots(document.getElementById('audioDots'), themes[name].audios.length, state.a, (i)=>{
+      if (i === state.a) return;
+      state.a = i;
+      saveVariants();
+      switchAudioTheme(name, true);
+      renderVariants(name);
+    });
+  }
+
+  function doFlash(){
+    const f = document.getElementById('flash');
+    f.style.transition = 'opacity 90ms ease';
+    f.style.opacity = 0.55 + Math.random()*0.3;
+    setTimeout(()=>{
+      f.style.opacity = 0;
+      if (Math.random() < 0.5) {
+        setTimeout(()=>{
+          f.style.opacity = 0.3;
+          setTimeout(()=>{ f.style.opacity = 0; }, 80);
+        }, 120);
+      }
+    }, 90);
+  }
+
+  document.querySelectorAll('.theme-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      started = true;
+      setTheme(btn.dataset.theme, true);
+      hideHint();
+    });
+  });
+
+  // volume
+  const volSlider = document.getElementById('vol');
+  const muteBtn = document.getElementById('muteBtn');
+  volSlider.addEventListener('input', ()=>{
+    masterVolume = volSlider.value/100;
+    muted = false;
+    muteBtn.style.opacity = 1;
+    audios[aActive].volume = audioTarget();
+  });
+  muteBtn.addEventListener('click', ()=>{
+    muted = !muted;
+    muteBtn.style.opacity = muted ? 0.45 : 1;
+    audios[aActive].volume = audioTarget();
+  });
+
+  // fullscreen
+  document.getElementById('fsBtn').addEventListener('click', ()=>{
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(()=>{});
+    } else {
+      document.exitFullscreen();
+    }
+  });
+
+  // clock
+  function tick(){
+    const now = new Date();
+    document.getElementById('time').textContent =
+      now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+    document.getElementById('date').textContent =
+      now.toLocaleDateString('ko-KR', { month:'long', day:'numeric', weekday:'long' });
+  }
+  tick();
+  setInterval(tick, 1000*10);
+
+  // idle fade
+  let idleTimer = null;
+  function resetIdle(){
+    document.body.classList.remove('idle');
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(()=> document.body.classList.add('idle'), 4000);
+  }
+  ['mousemove','touchstart','keydown'].forEach(ev => window.addEventListener(ev, resetIdle));
+  resetIdle();
+
+  function hideHint(){
+    document.getElementById('hint').classList.add('hidden');
+  }
+  window.addEventListener('click', ()=>{
+    if (!started) {
+      started = true;
+      audios[aActive].play().catch(()=>{});
+    }
+    hideHint();
+  }, { once:false });
+  setTimeout(hideHint, 6000);
+
+  // init
+  setTimeout(()=> document.getElementById('loader').classList.add('hidden'), 4500);
+  setTheme(current, false);
+})();
+</script>
+</body>
+</html>
