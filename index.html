@@ -2,8 +2,11 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>ZoneOut — 그냥 멍때리기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&display=swap" rel="stylesheet">
 <style>
   :root{
     --accent: 108,158,255;
@@ -13,7 +16,15 @@
   html,body{
     margin:0; padding:0; width:100%; height:100%;
     background:#05060a; overflow:hidden;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard", "Noto Sans KR", sans-serif;
+    /* "Inter" is loaded from Google Fonts so every character we set in it —
+       digits, ':', punctuation — renders identically wherever this is
+       deployed. Relying on locally-installed fonts (the old stack) meant a
+       visitor without "Pretendard" installed got a silent fallback font
+       whose ':' glyph didn't match the digits' weight/baseline, which is
+       what read as "broken" after deploying. Korean text still falls
+       through per-glyph to Noto Sans KR/system fonts since Inter has no
+       Hangul coverage. */
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard", "Noto Sans KR", sans-serif;
   }
   #stage{
     position:fixed; inset:0; width:100vw; height:100vh; overflow:hidden;
@@ -38,9 +49,10 @@
 
   /* clock */
   #clock{
-    position:absolute; top:6vh; left:50%; transform:translateX(-50%);
+    position:absolute; top:max(6vh, env(safe-area-inset-top) + 14px); left:50%; transform:translateX(-50%);
     z-index:4; color:rgba(255,255,255,0.88); text-align:center;
     font-size:clamp(2.4rem, 6vw, 4.2rem); font-weight:200; letter-spacing:2px;
+    font-variant-numeric: tabular-nums;
     text-shadow: 0 2px 24px rgba(0,0,0,0.55);
     pointer-events:none; user-select:none;
   }
@@ -69,7 +81,7 @@
 
   /* control bar */
   #controls{
-    position:absolute; left:50%; bottom:5vh; transform:translateX(-50%);
+    position:absolute; left:50%; bottom:max(5vh, env(safe-area-inset-bottom) + 14px); transform:translateX(-50%);
     z-index:5; display:flex; align-items:center; gap:10px;
     border-radius:999px; padding:10px 14px;
   }
@@ -245,6 +257,35 @@
   }
   #miniLoader.show{ opacity:1; }
   @keyframes spin{ to{ transform:rotate(360deg); } }
+
+  /* ---------- tablet / phone layout ----------
+     The control bar's icon row (4 themes + volume + timer + settings +
+     fullscreen) is ~560px wide at desktop sizing — wider than most phones
+     in portrait. Rather than shrink everything into unreadable tap targets,
+     it wraps onto a second centered line below ~640px, and non-essential
+     chrome (dividers, the on-screen volume track) shrinks or drops. */
+  @media (max-width: 640px){
+    #controls{
+      /* a definite width (not just max-width) so the flex-wrap algorithm
+         packs items tightly against it instead of shrink-wrapping to an
+         arbitrary, overly-narrow "preferred" width and stacking everything
+         into far more rows than necessary */
+      width: min(92vw, 320px); flex-wrap: wrap; justify-content: center; row-gap: 10px;
+    }
+    .divider{ display:none; }
+    #volWrap{ order: 10; } /* keep the icon buttons together on the first line(s), volume last */
+    #vol{ width: 68px; }
+    .theme-btn, #fsBtn, #timerToggleBtn, #settingsBtn{ width:42px; height:42px; }
+    #variants{ width: min(90vw, 280px); flex-wrap: wrap; justify-content: center; row-gap: 6px; }
+    #timerPanel{ top: 17vh; } /* clock is centered and can run wide; drop the timer below it
+                                  instead of beside it so they don't overlap on narrow screens */
+    #settingsPanel{ right: 4vw; width: 176px; }
+  }
+  @media (max-width: 400px){
+    #clock{ font-size: 2.05rem; }
+    #timerPanel{ width: 192px; padding:16px 16px 18px; }
+    .timerDisplay{ font-size: 1.9rem; }
+  }
 </style>
 </head>
 <body>
@@ -409,8 +450,13 @@
   function audioUrlFor(name){ return themes[name].audios[variantsFor(name).a]; }
 
   const VIDEO_LOOP_XFADE = 1.2;  // seconds, loop crossfade for video
-  const AUDIO_LOOP_XFADE = 1.4;  // seconds, loop crossfade for audio
-  const THEME_XFADE = 1.6;       // seconds, crossfade when switching themes
+  const THEME_XFADE = 1.6;       // seconds, gain crossfade when switching audio tracks
+  const AUDIO_LOOP_TRIM = 1.4;   // seconds trimmed off both ends of the *repeat* loop region —
+                                  // most ambience clips fade in/out from silence, and looping
+                                  // exactly at the file boundaries hits those quiet stretches
+                                  // every cycle. AudioBufferSourceNode.loopStart/loopEnd skips
+                                  // them sample-accurately; only the very first playthrough
+                                  // hears the true start of the file.
 
   let current = localStorage.getItem('zoneout-theme') || 'rain';
   let flashTimer = null;
@@ -512,87 +558,76 @@
     nv.addEventListener('error', onError, { once:true });
   }
 
-  // ---- audio: plain <audio>.volume crossfade ----
-  // (Web Audio gain nodes would be more robust, but mixkit's CDN doesn't send CORS
-  // headers, and routing a cross-origin element through createMediaElementSource
-  // without CORS silently zeroes its output — so we're stuck with direct .volume.)
-  const audios = [new Audio(), new Audio()];
-  audios.forEach(a => { a.preload = 'auto'; a.volume = 0; });
+  // ---- audio: Web Audio API buffer playback for genuinely seamless looping ----
+  // An <audio> element's `loop` attribute (or manually restarting at time 0)
+  // still has to re-enter the decode pipeline at the loop point, which is
+  // audible as a small but real gap/click. Decoding the whole track into an
+  // AudioBuffer up front and looping it with loopStart/loopEnd on an
+  // AudioBufferSourceNode is sample-accurate — the browser stitches the loop
+  // seam with zero gap. That also means repeats no longer need any
+  // timer-driven crossfade at all; a gain crossfade is only used for the rare
+  // case of switching to a genuinely *different* track (theme/variant change).
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const audioBufferCache = new Map(); // url -> Promise<AudioBuffer>
+  function loadAudioBuffer(url){
+    if (!audioBufferCache.has(url)) {
+      audioBufferCache.set(url, fetch(url)
+        .then(r => r.arrayBuffer())
+        .then(buf => audioCtx.decodeAudioData(buf)));
+    }
+    return audioBufferCache.get(url);
+  }
+
+  const audioGains = [audioCtx.createGain(), audioCtx.createGain()];
+  audioGains.forEach(g => { g.gain.value = 0; g.connect(audioCtx.destination); });
+  const audioSources = [null, null]; // current AudioBufferSourceNode per channel
   let aActive = 0;
-  let audioBusy = false;
+  let audioLoadSeq = 0; // a switch that gets superseded while its buffer is still loading no-ops instead of acting late
   let masterVolume = 0.55;
   let muted = false;
 
   function audioTarget(){ return muted ? 0 : masterVolume; }
 
-  // Deliberately setTimeout-driven, not requestAnimationFrame: rAF callbacks can
-  // stop firing altogether when the tab isn't actively compositing (backgrounded,
-  // minimized, or an inactive preview pane), which left this fade stuck at 0
-  // indefinitely. setTimeout keeps firing (if coarsely, when throttled) and each
-  // tick recomputes progress from real elapsed time, so it still converges.
-  //
-  // Each call claims the element with a generation tag. With only two <audio>
-  // elements ping-ponging, switching themes quickly reuses an element while an
-  // older fade targeting it is still running — without this check the old and
-  // new fades would fight over .volume every tick, which is what "growing
-  // overlap" on fast switches actually was.
-  let audioGenSeq = 0;
-  function fadeVolume(el, from, to, duration, onDone){
-    const myGen = ++audioGenSeq;
-    el._gen = myGen;
-    const start = performance.now();
-    function step(){
-      if (el._gen !== myGen) return; // superseded by a newer fade claiming this element
-      const p = Math.min(1, (performance.now() - start) / (duration * 1000));
-      el.volume = Math.max(0, Math.min(1, from + (to - from) * p));
-      if (p < 1) setTimeout(step, 50);
-      else { el.volume = to; if (onDone) onDone(); }
-    }
-    step();
-  }
+  async function switchAudioTheme(name, userGesture){
+    const url = audioUrlFor(name);
+    const seq = ++audioLoadSeq;
+    if (userGesture) { started = true; audioCtx.resume().catch(()=>{}); }
 
-  function crossfadeAudio(oldIdx, newIdx, duration){
-    const target = audioTarget();
-    const oldEl = audios[oldIdx], newEl = audios[newIdx];
-    fadeVolume(newEl, 0, target, duration);
-    fadeVolume(oldEl, oldEl.volume, 0, duration, ()=>{ oldEl.pause(); });
-  }
+    const spinner = document.getElementById('miniLoader');
+    const spinnerTimer = setTimeout(()=>{
+      if (seq === audioLoadSeq) spinner.classList.add('show');
+    }, 250);
 
-  function armAudioLoop(idx){
-    const a = audios[idx];
-    a.ontimeupdate = ()=>{
-      if (aActive !== idx || !a.duration || audioBusy) return;
-      const xf = Math.min(AUDIO_LOOP_XFADE, a.duration * 0.25);
-      if (a.duration - a.currentTime <= xf) {
-        audioBusy = true;
-        const nextIdx = 1 - aActive;
-        const na = audios[nextIdx];
-        na.src = a.src;
-        na.currentTime = 0;
-        na.play().catch(()=>{});
-        crossfadeAudio(aActive, nextIdx, xf);
-        aActive = nextIdx;
-        armAudioLoop(nextIdx);
-        setTimeout(()=>{ audioBusy = false; }, xf * 1000 + 300);
-      }
-    };
-  }
+    let buffer;
+    try { buffer = await loadAudioBuffer(url); }
+    catch(e) { clearTimeout(spinnerTimer); return; }
+    clearTimeout(spinnerTimer);
+    if (seq === audioLoadSeq) spinner.classList.remove('show');
+    if (seq !== audioLoadSeq) return; // a newer switch started before this one's buffer arrived
 
-  function switchAudioTheme(name, userGesture){
-    const oldIdx = aActive;
-    const nextIdx = 1 - aActive;
-    const na = audios[nextIdx];
-    audioBusy = true;
-    na.src = audioUrlFor(name);
-    na.currentTime = 0;
-    if (userGesture || started) {
-      na.play().catch(()=>{});
-      started = true;
-    }
-    crossfadeAudio(oldIdx, nextIdx, THEME_XFADE);
+    const oldIdx = aActive, nextIdx = 1 - aActive;
+    const trim = Math.min(AUDIO_LOOP_TRIM, buffer.duration * 0.15);
+    const src = audioCtx.createBufferSource();
+    src.buffer = buffer;
+    src.loop = true;
+    src.loopStart = trim;
+    src.loopEnd = Math.max(trim + 0.5, buffer.duration - trim);
+    src.connect(audioGains[nextIdx]);
+
+    const now = audioCtx.currentTime;
+    audioGains[nextIdx].gain.cancelScheduledValues(now);
+    audioGains[nextIdx].gain.setValueAtTime(0, now);
+    audioGains[nextIdx].gain.linearRampToValueAtTime(audioTarget(), now + THEME_XFADE);
+    audioGains[oldIdx].gain.cancelScheduledValues(now);
+    audioGains[oldIdx].gain.setValueAtTime(audioGains[oldIdx].gain.value, now);
+    audioGains[oldIdx].gain.linearRampToValueAtTime(0, now + THEME_XFADE);
+
+    src.start(0, 0); // plays the true beginning once; every repeat after that loops loopStart<->loopEnd seamlessly
+    audioSources[nextIdx] = src;
     aActive = nextIdx;
-    armAudioLoop(nextIdx);
-    setTimeout(()=>{ audioBusy = false; }, THEME_XFADE * 1000 + 300);
+
+    const staleSrc = audioSources[oldIdx];
+    setTimeout(()=>{ if (staleSrc) { try { staleSrc.stop(); } catch(e){} } }, THEME_XFADE * 1000 + 150);
   }
 
   function setTheme(name, userGesture){
@@ -676,12 +711,12 @@
     masterVolume = volSlider.value/100;
     muted = false;
     muteBtn.style.opacity = 1;
-    audios[aActive].volume = audioTarget();
+    audioGains[aActive].gain.setValueAtTime(audioTarget(), audioCtx.currentTime);
   });
   muteBtn.addEventListener('click', ()=>{
     muted = !muted;
     muteBtn.style.opacity = muted ? 0.45 : 1;
-    audios[aActive].volume = audioTarget();
+    audioGains[aActive].gain.setValueAtTime(audioTarget(), audioCtx.currentTime);
   });
 
   // fullscreen
@@ -775,33 +810,36 @@
   // makeup gain pushes over 0dBFS. This is the standard "compress, then
   // makeup gain, then limit" trick for getting genuinely louder without
   // clipping — a single compressor alone just caps the ceiling lower.
-  let bellCtx = null, bellBus = null;
-  function getBellCtx(){
-    if (!bellCtx) {
-      bellCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const comp = bellCtx.createDynamicsCompressor();
+  // Shares audioCtx with the ambience playback above (rather than a second
+  // AudioContext) — one context per page is enough and keeps both graphs on
+  // the same clock.
+  let bellBus = null;
+  function getBellBus(){
+    if (!bellBus) {
+      const comp = audioCtx.createDynamicsCompressor();
       comp.threshold.value = -24;
       comp.knee.value = 6;
       comp.ratio.value = 12;
       comp.attack.value = 0.002;
       comp.release.value = 0.2;
-      const makeup = bellCtx.createGain();
+      const makeup = audioCtx.createGain();
       makeup.gain.value = 4.5;
-      const limiter = bellCtx.createDynamicsCompressor();
+      const limiter = audioCtx.createDynamicsCompressor();
       limiter.threshold.value = -1;
       limiter.knee.value = 0;
       limiter.ratio.value = 20;
       limiter.attack.value = 0.001;
       limiter.release.value = 0.1;
-      comp.connect(makeup).connect(limiter).connect(bellCtx.destination);
+      comp.connect(makeup).connect(limiter).connect(audioCtx.destination);
       bellBus = comp;
     }
-    if (bellCtx.state === 'suspended') bellCtx.resume();
-    return bellCtx;
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return bellBus;
   }
   function playBell(big){
     if (uiVolume <= 0) return;
-    const ctx = getBellCtx();
+    const ctx = audioCtx;
+    const bus = getBellBus();
     const now = ctx.currentTime;
     const freq = big ? 164.8 : 185.0; // low, soft register — E3 / F#3
     const attack = 0.012;
@@ -816,7 +854,7 @@
       gain.gain.setValueAtTime(0, now);
       gain.gain.linearRampToValueAtTime(peak, now + attack);
       gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-      osc.connect(gain).connect(bellBus);
+      osc.connect(gain).connect(bus);
       osc.start(now);
       osc.stop(now + dur + 0.05);
     });
@@ -885,8 +923,13 @@
 
     const saved = JSON.parse(localStorage.getItem('zoneout-timerpos') || 'null');
     if (saved) {
-      timerPanel.style.left = saved.left + 'px';
-      timerPanel.style.top = saved.top + 'px';
+      // clamp in case this position was saved on a wider screen (e.g. dragged
+      // on desktop, then opened on a phone) and would now sit off-screen
+      const w = timerPanel.offsetWidth || 216, h = timerPanel.offsetHeight || 260;
+      const left = Math.max(4, Math.min(window.innerWidth - w - 4, saved.left));
+      const top = Math.max(4, Math.min(window.innerHeight - h - 4, saved.top));
+      timerPanel.style.left = left + 'px';
+      timerPanel.style.top = top + 'px';
     }
 
     timerPanel.addEventListener('pointerdown', (e)=>{
@@ -977,10 +1020,8 @@
     document.getElementById('hint').classList.add('hidden');
   }
   window.addEventListener('click', ()=>{
-    if (!started) {
-      started = true;
-      audios[aActive].play().catch(()=>{});
-    }
+    started = true;
+    audioCtx.resume().catch(()=>{});
     hideHint();
   }, { once:false });
   setTimeout(hideHint, 6000);
